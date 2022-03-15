@@ -1,64 +1,149 @@
 -- bb
 
-ball_=include("bb/lib/ball")
-line_=include("bb/lib/line")
+-- https://processing.org/examples/bouncybubbles.html
+SCREEN_WIDTH=128
+SCREEN_HEIGHT=64
+SCREEN_MIN=0
+T0=200 -- temperature
+berendsen_coefficient=15
+gravity=0.09
+DEBOUNCE_COLLISIONS=15
+local Ball={}
+
+engine.name="PolyPerc"
+
+function Ball:new (o)
+  o=o or {}
+  setmetatable(o,self)
+  self.__index=self
+  o.x=o.x or 0
+  o.y=o.y or 0
+  o.color=o.color or 10
+  o.vx=(math.random()-0.5)
+  o.vy=(math.random()-0.5)
+  o.diameter=o.diameter or 0
+  o.id=o.id or 1
+  o.others=o.others
+  o.spring=o.spring or 0.09
+  o.gravity=o.gravity or 0.09
+  o.friction=o.friction or-0.9
+  o.collided=0
+  o.hz=220*math.random(2,6)/2
+  return o
+end
+
+function Ball:collide()
+  for i=self.id+1,#self.others do
+    local dx=self.others[i].x-self.x
+    local dy=self.others[i].y-self.y
+    local distance=math.sqrt(dx*dx+dy*dy)
+    local minDist=self.others[i].diameter/2+self.diameter/2
+    if (distance<minDist) then
+      if self.others[i].collided==0 then
+        self.others[i].collided=DEBOUNCE_COLLISIONS
+      end
+      if self.collided==0 then
+        self.collided=DEBOUNCE_COLLISIONS
+      end
+      local angle=math.atan2(dy,dx)
+      local targetX=self.x+math.cos(angle)*minDist
+      local targetY=self.y+math.sin(angle)*minDist
+      local ax=(targetX-self.others[i].x)*self.spring
+      local ay=(targetY-self.others[i].y)*self.spring
+      self.vx=self.vx-ax
+      self.vy=self.vy-ay
+      self.others[i].vx=self.others[i].vx+ax
+      self.others[i].vy=self.others[i].vy+ay
+    end
+  end
+end
+
+function Ball:move()
+  self.vy=self.vy+gravity
+  self.vx=self.vx+(math.random()-0.5)/100
+  self.x=self.x+self.vx
+  self.y=self.y+self.vy
+  if (self.x+self.diameter/2>SCREEN_WIDTH) then
+    self.x=SCREEN_WIDTH-self.diameter/2
+    self.vx=self.vx*self.friction
+  elseif (self.x-self.diameter/2<SCREEN_MIN) then
+    self.x=self.diameter/2
+    self.vx=self.vx*self.friction
+  end
+  if (self.y+self.diameter/2>SCREEN_HEIGHT) then
+    self.y=SCREEN_HEIGHT-self.diameter/2
+    self.vy=self.vy*self.friction
+  elseif (self.y-self.diameter/2<SCREEN_MIN) then
+    self.y=self.diameter/2
+    self.vy=self.vy*self.friction
+  end
+end
+
+function Ball:redraw()
+  screen.level(self.color)
+  screen.circle(self.x,self.y,self.diameter/2)
+  screen.fill()
+end
 
 function init()
-  walls={}
   balls={}
-  for i=1,1 do
-    table.insert(balls,ball_:new{a={0,1},p={64,32}})
+  for i=1,8 do
+    table.insert(balls,Ball:new{
+      id=i,
+      x=math.random(1,128),
+      y=math.random(1,10),
+      diameter=math.random(4,18),
+      others=balls,
+    color=math.random(2,15)})
   end
 
-  -- table.insert(walls,line_:new{p={{x=-1,y=-1},{x=-1,y=65}}})
-  -- table.insert(walls,line_:new{p={{x=129,y=-1},{x=129,y=65}}})
-  -- table.insert(walls,line_:new{p={{x=-1,y=-1},{x=129,y=-1}}})
-  -- table.insert(walls,line_:new{p={{x=-1,y=65},{x=129,y=65}}})
-  -- table.insert(walls,line_:new{p={{x=30,y=1},{x=70,y=100}}})
-  -- table.insert(walls,line_:new{p={{x=1,y=0},{x=128,y=74}}})
-  -- table.insert(walls,line_:new{p={{x=120,y=-20},{x=128,y=84}}})
-  -- table.insert(walls,line_:new{p={{x=1,y=-10},{x=128,y=-40}}})
-  -- table.insert(walls,line_:new{p={{x=128,y=-30},{x=1,y=20}}})
-  -- table.insert(walls,line_:new{p={{x=1,y=74},{x=128,y=10}}})
-  local diff=10
-  table.insert(walls,line_:new{p={{x=64-diff,y=0},{x=128-diff,y=64}}})
-  table.insert(walls,line_:new{p={{x=0+diff,y=64},{x=64+diff,y=0}}})
-  table.insert(walls,line_:new{p={{x=0,y=64-diff},{x=128,y=64-diff}}})
-  for i,wall in ipairs(walls) do
-    wall:rotate(3.4,{x=64,y=32})
-  end
-
-  redraw_clock=clock.run(function()
+  clock.run(function()
     while true do
-      clock.sleep(1/15)
-      update_all()
+      clock.sleep(1/20)
+      -- https://www2.mpip-mainz.mpg.de/~andrienk/journal_club/thermostats.pdf
+      local T=0
+      for _,ball in ipairs(balls) do
+        ball:collide()
+      end
+      for i,ball in ipairs(balls) do
+        if ball.collided>0 then
+          if ball.collided==DEBOUNCE_COLLISIONS then
+            print(i)
+            engine.amp(0.5)
+            engine.hz(ball.hz)
+          end
+          ball.collided=ball.collided-1
+        end
+      end
+      for _,ball in ipairs(balls) do
+        ball:move()
+        local mass=3.14159*(ball.diameter/2)^2
+        T=T+mass*math.sqrt(ball.vx^2+ball.vy^2)
+      end
+      T=T/#balls
+      -- print(T)
+      -- local lambda=math.sqrt(T0/T)
+      local lambda=math.sqrt(1+(T0/T-1)/berendsen_coefficient)
+      for _,ball in ipairs(balls) do
+        ball.vx=ball.vx*lambda
+        ball.vy=ball.vy*lambda
+      end
       redraw()
     end
   end)
 end
 
-function update_all()
-  for _,ball in ipairs(balls) do
-    ball:update_position(1)
-  end
-  for _,ball in ipairs(balls) do
-    ball:update_collision(walls)
-  end
-  -- for i,wall in ipairs(walls) do
-  --   wall:rotate(-0.04,{x=64,y=32})
-  -- end
-  for _,ball in ipairs(balls) do
-    ball:update_collision(walls)
-  end
-end
-
 function redraw()
   screen.clear()
-  for _,w in ipairs(walls) do
-    w:redraw()
-  end
-  for _,b in ipairs(balls) do
-    b:redraw()
+  screen.blend_mode(4)
+  for _,ball in ipairs(balls) do
+    ball:redraw()
   end
   screen.update()
+end
+
+function enc(k,d)
+  if k==3 then
+    T0=util.clamp(T0+d,0.001,1000)
+  end
 end
